@@ -122,9 +122,6 @@ public class SimonSpinsModule : MonoBehaviour
             setupButton(i);
         }
 
-        var sn = Bomb.GetSerialNumber();
-        _firstRuleIndex = sn[2] - '0' + 10 * (sn[5] % 2);
-
         // Paddles are identified by their shape (circle, pentagon, square)
         _curPropertyValues[Property.PaddleShape] = new[] { 0, 1, 2 };
 
@@ -139,8 +136,80 @@ public class SimonSpinsModule : MonoBehaviour
         for (int i = 0; i < 20; i++)
             Debug.LogFormat(@"<Simon Spins #{0}> {1} = {2}", _moduleId, _tableProperties[i], _tablePropertyValues[i].Select(x => _propertyValueNames[_tableProperties[i]][x]).Join(", "));
 
+        var snRulePairs = new Func<int>[][]
+        {
+            new Func<int>[] { () => Bomb.GetSerialNumberNumbers().First(), () => Bomb.GetSerialNumberNumbers().Last() },
+            new Func<int>[] { () => Bomb.GetSerialNumberNumbers().First(), () => Bomb.GetSerialNumberNumbers().Skip(1).First() },
+            new Func<int>[] { () => Bomb.GetSerialNumber()[2] - '0', () => Bomb.GetSerialNumber()[5] - '0' },
+            new Func<int>[] { () => { var nums = Bomb.GetSerialNumberNumbers().ToArray(); return nums[nums.Length - 2]; }, () => Bomb.GetSerialNumberNumbers().Last() }
+        };
+
+        var alternativeNumbers = new Func<int>[][]
+        {
+            new Func<int>[]
+            {
+                () => Bomb.GetIndicators().Count(),
+                () => Bomb.GetOnIndicators().Count(),
+                () => Bomb.GetOffIndicators().Count(),
+                () => Bomb.GetIndicators().SelectMany(ind => ind).Distinct().Count(),
+                () => Bomb.GetIndicators().SelectMany(ind => ind).Where(ch => "AEIOU".Contains(ch)).Distinct().Count(),
+                () => Bomb.GetIndicators().SelectMany(ind => ind).Where(ch => !"AEIOU".Contains(ch)).Distinct().Count(),
+                () => Bomb.GetOnIndicators().SelectMany(ind => ind).Distinct().Count(),
+                () => Bomb.GetOnIndicators().SelectMany(ind => ind).Where(ch => "AEIOU".Contains(ch)).Distinct().Count(),
+                () => Bomb.GetOnIndicators().SelectMany(ind => ind).Where(ch => !"AEIOU".Contains(ch)).Distinct().Count(),
+                () => Bomb.GetOffIndicators().SelectMany(ind => ind).Distinct().Count(),
+                () => Bomb.GetOffIndicators().SelectMany(ind => ind).Where(ch => "AEIOU".Contains(ch)).Distinct().Count(),
+                () => Bomb.GetOffIndicators().SelectMany(ind => ind).Where(ch => !"AEIOU".Contains(ch)).Distinct().Count()
+            },
+            new Func<int>[]
+            {
+                () => Bomb.GetPortCount(),
+                () => Bomb.GetPortPlateCount(),
+                () => Bomb.GetPortPlates().Count(pp => pp.Length > 0),
+                () => Bomb.GetPortPlates().Count(pp => pp.Length > 1),
+                () => Bomb.CountUniquePorts(),
+                () => Bomb.GetPorts().GroupBy(p => p).Count(gr => gr.Count() > 1),
+                () => Bomb.GetPortCount(Port.Parallel),
+                () => Bomb.GetPortCount(Port.Serial),
+                () => Bomb.GetPortCount(Port.RJ45),
+                () => Bomb.GetPortCount(Port.StereoRCA),
+                () => Bomb.GetPortCount(Port.DVI),
+                () => Bomb.GetPortCount(Port.PS2),
+                () => Bomb.GetPorts().Count(p => !p.Equals(Port.Parallel.ToString())),
+                () => Bomb.GetPorts().Count(p => !p.Equals(Port.Serial.ToString())),
+                () => Bomb.GetPorts().Count(p => !p.Equals(Port.RJ45.ToString())),
+                () => Bomb.GetPorts().Count(p => !p.Equals(Port.StereoRCA.ToString())),
+                () => Bomb.GetPorts().Count(p => !p.Equals(Port.DVI.ToString())),
+                () => Bomb.GetPorts().Count(p => !p.Equals(Port.PS2.ToString()))
+            },
+            new Func<int>[]
+            {
+                () => Bomb.GetBatteryCount(),
+                () => Bomb.GetBatteryCount(Battery.D),
+                () => (Bomb.GetBatteryCount(Battery.AA) + Bomb.GetBatteryCount(Battery.AAx3) + Bomb.GetBatteryCount(Battery.AAx4)) / 2,
+                () => Bomb.GetModuleNames().Count(),
+                () => Bomb.GetSolvableModuleNames().Count()
+            }
+        };
+
+        var rulePair = snRulePairs[rnd.Next(0, snRulePairs.Length)];
+        switch (rnd.Next(0, 3))
+        {
+            case 0:
+                var arr = alternativeNumbers[rnd.Next(0, alternativeNumbers.Length)];
+                rulePair = new[] { rulePair[rnd.Next(0, 2)], arr[rnd.Next(0, arr.Length)] };
+                break;
+            case 1:
+                rulePair = new[] { rulePair[1], rulePair[0] };
+                break;
+                // case 2 simply does nothing
+        }
+
+        _firstRuleIndex = rulePair[0]() + 10 * (rulePair[1]() % 2);
+
         _numberOfStages = Rnd.Range(3, 6);
-        Debug.LogFormat(@"[Simon Spins #{0}] Number of stages: {1}", _moduleId, _numberOfStages);
+        Debug.LogFormat(@"[Simon Spins #{0}] Starting row: {1} ({2})", _moduleId, _firstRuleIndex, _tableProperties[_firstRuleIndex]);
+        Debug.LogFormat(@"[Simon Spins #{0}] Number of stages: {1}.", _moduleId, _numberOfStages);
         StartCoroutine(Init(first: true));
     }
 

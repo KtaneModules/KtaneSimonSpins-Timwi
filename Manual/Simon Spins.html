@@ -123,6 +123,12 @@
 			font-size: 75%;
             padding-left: 1.2em;
 		}
+        .rule {
+            text-decoration: underline;
+        }
+        body.ruleseed-active .rule {
+            font-weight: bold;
+        }
     </style>
     <script>
         function setDefaultRules(rnd)
@@ -132,6 +138,9 @@
 
         function setRules(rnd)
         {
+            for (var i = rnd.next(0, 24); i >= 0; i--)
+                rnd.nextDouble();
+
             var properties = [];
             for (var i = 0; i < 20; i++)
                 properties.push(i);
@@ -150,6 +159,72 @@
                     document.getElementById(`symbol-${i}-${j}`).className = `symbol symbol-${properties[i]}-${values[j]}`;
                 document.getElementById(`asterisk-${i}`).innerText = (properties[i] >= 13 && properties[i] <= 15) ? '* ' : '';
             }
+
+            var snRulePairs = [
+                [ 'first digit of the serial number', 'last digit of the serial number' ],
+                [ 'first digit of the serial number', 'second digit of the serial number' ],
+                [ 'third character of the serial number', 'sixth character of the serial number' ],
+                [ 'second-last digit of the serial number', 'last digit of the serial number' ],
+            ];
+            var alternativeNumbers = [
+                [
+                    'number of indicators',
+                    'number of lit indicators',
+                    'number of unlit indicators',
+                    'number of distinct letters in all indicators',
+                    'number of distinct vowels in all indicators',
+                    'number of distinct consonants in all indicators',
+                    'number of distinct letters in all lit indicators',
+                    'number of distinct vowels in all lit indicators',
+                    'number of distinct consonants in all lit indicators',
+                    'number of distinct letters in all unlit indicators',
+                    'number of distinct vowels in all unlit indicators',
+                    'number of distinct consonants in all unlit indicators',
+                ],
+                [
+                    'number of ports',
+                    'number of port plates',
+                    'number of non-empty port plates',
+                    'number of port plates with more than one port on it',
+                    'number of port types',
+                    'number of duplicated port types',
+                    'number of parallel ports',
+                    'number of serial ports',
+                    'number of RJ-45 ports',
+                    'number of Stereo RCA ports',
+                    'number of DVI-D ports',
+                    'number of PS/2 ports',
+                    'number of ports other than parallel',
+                    'number of ports other than serial',
+                    'number of ports other than RJ-45',
+                    'number of ports other than Stereo RCA',
+                    'number of ports other than DVI-D',
+                    'number of ports other than PS/2'
+                ],
+                [
+                    'number of batteries',
+                    'number of D batteries',
+                    'number of AA batteries, divided by 2, rounded down',
+                    'number of modules on the bomb (including needies)',
+                    'number of non-needy modules on the bomb'
+                ]
+            ];
+
+            var rulePair = snRulePairs[rnd.next(0, snRulePairs.length)];
+            switch (rnd.next(0, 3))
+            {
+                case 0:
+                    var arr = alternativeNumbers[rnd.next(0, alternativeNumbers.length)];
+                    rulePair = [ rulePair[rnd.next(0, 2)], arr[rnd.next(0, arr.length)] ];
+                    break;
+                case 1:
+                    rulePair = [ rulePair[1], rulePair[0] ];
+                    break;
+                // case 2 simply does nothing
+            }
+
+            document.getElementById('rule-1').innerText = rulePair[0];
+            document.getElementById('rule-2').innerText = rulePair[1];
         }
     </script>
 </head>
@@ -191,13 +266,13 @@
 
                     <ul>
                         <li>There are three paddles attached to a pivot. The table on the left lists 20 properties that each paddle has, and the 3 values of each property.</li>
-                        <li>Use the <em>third character</em> of the serial number to determine which property to start at. If the <em>last</em> digit of the serial number is odd, add 10.</li>
+                        <li>Use the <span class='rule' id='rule-1'>third character of the serial number</span> to determine which property to start at. If the <span class='rule' id='rule-2'>sixth character of the serial number</span> is odd, add 10.</li>
                         <li>In the first stage, press the paddle where the starting property has the first value listed in the table. However, also remember what its value for the <em>next</em> property is.</li>
                         <li>In the second stage, press the paddle with the remembered value, and then the paddle where the second property’s value is the next listed in the table and remember what its value for the <em>next</em> property is.</li>
                         <li>In each subsequent stage, press all of the paddles with the <em>remembered</em> property values, plus the one where the last remembered property has the next value listed in the table, and remember the next property’s value for that paddle.</li>
                         <li>There are between 3 and 5 stages to this module.</li>
                         <li>The properties and their values wrap around.</li>
-                        <li>Pressing an incorrect paddle at any time will incur a strike and reset the module back to stage 1.</li>
+                        <li>Pressing an incorrect paddle at any time will incur a strike and reset the module to stage 1.</li>
                     </ul>
 
                     <div class='footnotes'>
