@@ -5,6 +5,7 @@ using System.Linq;
 using KModkit;
 using SimonSpins;
 using UnityEngine;
+
 using Rnd = UnityEngine.Random;
 
 /// <summary>
@@ -19,6 +20,7 @@ public class SimonSpinsModule : MonoBehaviour
     public KMRuleSeedable RuleSeedable;
 
     public Texture[] SymbolTextures;
+    public Texture[] BackSymbolTextures;
     public Texture[] StripeTextures;
     public Color[] FaceColors;
     public Color[] ArmFrameColors;
@@ -27,34 +29,36 @@ public class SimonSpinsModule : MonoBehaviour
     public Transform[] Paddles;
     public KMSelectable[] Heads;
     private MeshRenderer[] _headsMR;
-    public MeshRenderer[] Arms1;
-    public MeshRenderer[] Arms2;
-    public MeshRenderer[] Arms3;
-    private MeshRenderer[][] _arms;
+    public MeshRenderer[] Arms;
     public MeshRenderer[] Faces;
     public MeshRenderer[] Symbols;
+    public Transform[] Protrusions;
+    public Transform[] ProtrusionParents;
+    public MeshRenderer[] ProtrusionsMR;
+    public MeshRenderer[] BackSymbols;
+    public Transform[] Colliders;
 
     enum Property
     {
-        Level,  // done
-        Symbol, // done
-        SymbolSize, // done
-        SymbolFill, // done
-        SymbolSpin, // done
-        SymbolFlash,    // done
-        PaddleSpin, // done
-        PaddleFlip, // done
-        FaceColor,  // done
-        FaceStripe, // done
-        PaddleShape,    // done
-        FrameColor, // done
-        ArmColor,   // done
+        Level,
+        Symbol,
+        SymbolSize,
+        SymbolFill,
+        SymbolSpin,
+        SymbolFlash,
+        PaddleSpin,
+        PaddleFlip,
+        FaceColor,
+        FaceStripe,
+        PaddleShape,
+        FrameColor,
+        ArmColor,
         BackSymbolPattern,
         BackSymbolColor,
         BackSymbol,
         ProtrusionPlacement,
         ProtrusionCount,
-        ArmLength,  // done
+        ArmLength,
         ArmCount
     }
 
@@ -63,10 +67,10 @@ public class SimonSpinsModule : MonoBehaviour
         { Property.Level, new[] { "bottom", "middle", "top" } },
         { Property.Symbol, new[] { "I", "X", "Y" } },
         { Property.SymbolSize, new[] { "large", "medium", "small" } },
-        { Property.SymbolFill, new[] { "hollow", "filled", "striped" } },
+        { Property.SymbolFill, new[] { "filled", "hollow", "striped" } },
         { Property.SymbolSpin, new[] { "CCW", "none", "CW" } },
         { Property.SymbolFlash, new[] { "none", "on/off", "inverting" } },
-        { Property.PaddleSpin, new[] { "CCW", "none", "cw" } },
+        { Property.PaddleSpin, new[] { "CCW", "none", "CW" } },
         { Property.PaddleFlip, new[] { "left", "right", "none" } },
         { Property.FaceColor, new[] { "blue", "red", "yellow" } },
         { Property.FaceStripe, new[] { "arm-aligned", "perpendicular to arm", "none" } },
@@ -85,7 +89,7 @@ public class SimonSpinsModule : MonoBehaviour
     private static int _moduleIdCounter = 1;
     private int _moduleId;
     private bool _windDown = false;
-    private List<Coroutine> _symbolCoroutines = new List<Coroutine>();
+    private readonly List<Coroutine> _symbolCoroutines = new List<Coroutine>();
     private int _running;
     private readonly Dictionary<Property, int[]> _curPropertyValues = new Dictionary<Property, int[]>();
     private readonly float[] _armAngles = new float[] { 0, 120, -120 };
@@ -94,6 +98,8 @@ public class SimonSpinsModule : MonoBehaviour
     private readonly float[] _symbolAngles = new float[] { 30, 110, 190 };
     private readonly float[] _headHeights = new float[] { -.003f, -.003f, -.0025f };
     private readonly float[] _flipAngles = new float[] { 0, 0, 0 };
+    private readonly bool[] _faceColorFading = new bool[] { false, false, false };
+    private readonly bool[] _permaflipped = new bool[] { false, false, false };
 
     const float _accelDecelDuration = 2.5f;
 
@@ -102,33 +108,35 @@ public class SimonSpinsModule : MonoBehaviour
     private int[] _rememberedValues;
     private int _subprogress;
     private int _numberOfStages;
+    private int _firstRuleIndex;
 
     void Start()
     {
         _moduleId = _moduleIdCounter++;
-        _arms = new[] { Arms1, Arms2, Arms3 };
         _headsMR = Heads.Select(kms => kms.GetComponent<MeshRenderer>()).ToArray();
         for (int i = 0; i < 3; i++)
         {
             Paddles[i].localEulerAngles = new Vector3(0, _armAngles[i], _flipAngles[i]);
             Symbols[i].transform.localEulerAngles = new Vector3(90, _symbolAngles[i], 0);
             Faces[i].material.color = Grey;
-            Heads[i].OnInteract = clicked(i);
+            setupButton(i);
         }
+
+        var sn = Bomb.GetSerialNumber();
+        _firstRuleIndex = sn[2] - '0' + 10 * (sn[5] % 2);
 
         // Paddles are identified by their shape (circle, pentagon, square)
         _curPropertyValues[Property.PaddleShape] = new[] { 0, 1, 2 };
 
         var rnd = RuleSeedable.GetRNG();
-        for (var i = rnd.Next(0, 25); i >= 0; i--)
+        for (var i = rnd.Next(0, 24); i >= 0; i--)
             rnd.NextDouble();
 
         _tableProperties = (Property[]) Enum.GetValues(typeof(Property));
         rnd.ShuffleFisherYates(_tableProperties);
-        _tableProperties = _tableProperties.Take(10).ToArray();
         _tablePropertyValues = _tableProperties.Select(p => rnd.ShuffleFisherYates(Enumerable.Range(0, 3).ToArray())).ToArray();
 
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < 20; i++)
             Debug.LogFormat(@"<Simon Spins #{0}> {1} = {2}", _moduleId, _tableProperties[i], _tablePropertyValues[i].Select(x => _propertyValueNames[_tableProperties[i]][x]).Join(", "));
 
         _numberOfStages = Rnd.Range(3, 6);
@@ -136,9 +144,12 @@ public class SimonSpinsModule : MonoBehaviour
         StartCoroutine(Init(first: true));
     }
 
-    private KMSelectable.OnInteractHandler clicked(int i)
+    private void setupButton(int i)
     {
-        return delegate
+        Coroutine coroutine = null;
+        bool isLongPress = false;
+
+        Heads[i].OnInteract = delegate
         {
             Heads[i].AddInteractionPunch();
             Audio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, Heads[i].transform);
@@ -146,44 +157,75 @@ public class SimonSpinsModule : MonoBehaviour
             if (_rememberedValues == null || _windDown)      // Module is solved or in transition
                 return false;
 
-            var lsn = Bomb.GetSerialNumberNumbers().Last();
-            var lastProperty = _tableProperties[(lsn + 1 + _subprogress) % 10];
-            if (_curPropertyValues[lastProperty][i] == _rememberedValues[_subprogress])
+            if (coroutine != null)
+                StopCoroutine(coroutine);
+            isLongPress = false;
+            coroutine = StartCoroutine(longPress(() =>
             {
-                Debug.LogFormat(@"[Simon Spins #{0}] Correctly pressed the paddle where {1} is {2}.", _moduleId, lastProperty, _propertyValueNames[lastProperty][_rememberedValues[_subprogress]]);
-                _subprogress++;
-                if (_subprogress == _rememberedValues.Length)
-                {
-                    if (_rememberedValues.Length == _numberOfStages)
-                    {
-                        Debug.LogFormat(@"[Simon Spins #{0}] Module solved.", _moduleId);
-                        _rememberedValues = null;
-                        _windDown = true;
-                        Module.HandlePass();
-                    }
-                    else
-                    {
-                        Debug.LogFormat(@"[Simon Spins #{0}] Proceeding to stage {1}.", _moduleId, _rememberedValues.Length + 1);
-                        StartCoroutine(Init(first: false));
-                    }
-                }
+                Audio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonRelease, Heads[i].transform);
+                isLongPress = true;
+            }));
+            return false;
+        };
+
+        Heads[i].OnInteractEnded = delegate
+        {
+            if (coroutine != null)
+                StopCoroutine(coroutine);
+
+            if (_rememberedValues == null || _windDown)      // Module is solved or in transition
+                return;
+
+            if (isLongPress)
+            {
+                _permaflipped[i] = !_permaflipped[i];
             }
             else
             {
-                Debug.LogFormat(@"[Simon Spins #{0}] You pressed the paddle where {1} is {2}, but I expected {3}. Strike and reset to Stage 1.", _moduleId, lastProperty, _propertyValueNames[lastProperty][_curPropertyValues[lastProperty][i]], _propertyValueNames[lastProperty][_rememberedValues[_subprogress]]);
-                Module.HandleStrike();
-                StartCoroutine(Init(first: true));
-            }
+                var lastProperty = _tableProperties[(_firstRuleIndex + 1 + _subprogress) % 20];
+                if (_curPropertyValues[lastProperty][i] == _rememberedValues[_subprogress])
+                {
+                    Debug.LogFormat(@"[Simon Spins #{0}] Correctly pressed the paddle where {1} is {2}.", _moduleId, lastProperty, _propertyValueNames[lastProperty][_rememberedValues[_subprogress]]);
+                    _subprogress++;
+                    if (_subprogress == _rememberedValues.Length)
+                    {
+                        if (_rememberedValues.Length == _numberOfStages)
+                        {
+                            Debug.LogFormat(@"[Simon Spins #{0}] Module solved.", _moduleId);
+                            _rememberedValues = null;
+                            _windDown = true;
+                            Module.HandlePass();
+                        }
+                        else
+                        {
+                            Debug.LogFormat(@"[Simon Spins #{0}] Proceeding to stage {1}.", _moduleId, _rememberedValues.Length + 1);
+                            StartCoroutine(Init(first: false));
+                        }
+                    }
+                }
+                else
+                {
+                    Debug.LogFormat(@"[Simon Spins #{0}] You pressed the paddle where {1} is {2}, but I expected {3}. Strike and reset to Stage 1.", _moduleId, lastProperty, _propertyValueNames[lastProperty][_curPropertyValues[lastProperty][i]], _propertyValueNames[lastProperty][_rememberedValues[_subprogress]]);
+                    Module.HandleStrike();
+                    StartCoroutine(Init(first: true));
+                }
 
-            return false;
+                return;
+            }
         };
+    }
+
+    private IEnumerator longPress(Action after)
+    {
+        yield return new WaitForSeconds(.7f);
+        after();
     }
 
     private IEnumerator Init(bool first)
     {
         if (_curPropertyValues.ContainsKey(Property.PaddleSpin))    // This is only false at the very start of the module
         {
-            const float angleDifference = 90;
+            const float angleDifference = 70;
             // Determine the current position (angle) of the paddle that isn’t rotating.
             // The other paddles cannot stop anywhere within angleDifference° of that.
             var stationaryPaddle = Enumerable.Range(0, 3).First(i => _curPropertyValues[Property.PaddleSpin][i] == 1);
@@ -214,12 +256,11 @@ public class SimonSpinsModule : MonoBehaviour
         }
 
         _subprogress = 0;
-        var lsn = Bomb.GetSerialNumberNumbers().Last();
         if (first)
         {
-            foreach (var cr in _symbolCoroutines)
+            for (int i = 0; i < _symbolCoroutines.Count; i++)
             {
-                StopCoroutine(cr);
+                StopCoroutine(_symbolCoroutines[i]);
                 _running--;
             }
             for (int i = 0; i < 3; i++)
@@ -228,25 +269,28 @@ public class SimonSpinsModule : MonoBehaviour
                 Faces[i].material.color = Grey;
                 Faces[i].material.mainTexture = null;
                 Symbols[i].gameObject.SetActive(false);
-                foreach (var obj in _arms[i])
-                    obj.material.color = Grey;
+                for (int j = 0; j < 3; j++)
+                {
+                    Arms[3 * i + j].material.color = Grey;
+                    ProtrusionsMR[3 * i + j].material.color = Grey;
+                }
             }
 
-            var firstProperty = _tableProperties[lsn];
-            var firstPropertyValue = _tablePropertyValues[lsn][0];
+            var firstProperty = _tableProperties[_firstRuleIndex];
+            var firstPropertyValue = _tablePropertyValues[_firstRuleIndex][0];
             var firstPaddle = Enumerable.Range(0, 3).First(i => _curPropertyValues[firstProperty][i] == firstPropertyValue);
-            _rememberedValues = new[] { _curPropertyValues[_tableProperties[(lsn + 1) % 10]][firstPaddle] };
-            Debug.LogFormat(@"[Simon Spins #{0}] Stage 1: find paddle where {1} is {2} and remember that its {3} is {4}.", _moduleId, firstProperty, _propertyValueNames[firstProperty][firstPropertyValue], _tableProperties[(lsn + 1) % 10], _propertyValueNames[_tableProperties[(lsn + 1) % 10]][_rememberedValues[0]]);
+            _rememberedValues = new[] { _curPropertyValues[_tableProperties[(_firstRuleIndex + 1) % 20]][firstPaddle] };
+            Debug.LogFormat(@"[Simon Spins #{0}] Stage 1: find paddle where {1} is {2} and remember that its {3} is {4}.", _moduleId, firstProperty, _propertyValueNames[firstProperty][firstPropertyValue], _tableProperties[(_firstRuleIndex + 1) % 20], _propertyValueNames[_tableProperties[(_firstRuleIndex + 1) % 20]][_rememberedValues[0]]);
         }
         else
         {
             var stage = _rememberedValues.Length;
             Array.Resize(ref _rememberedValues, stage + 1);
-            var lastProperty = _tableProperties[(lsn + stage) % 10];
-            var nextValue = _tablePropertyValues[(lsn + stage) % 10][(Array.IndexOf(_tablePropertyValues[(lsn + stage) % 10], _rememberedValues[stage - 1]) + 1) % 3];
+            var lastProperty = _tableProperties[(_firstRuleIndex + stage) % 20];
+            var nextValue = _tablePropertyValues[(_firstRuleIndex + stage) % 20][(Array.IndexOf(_tablePropertyValues[(_firstRuleIndex + stage) % 20], _rememberedValues[stage - 1]) + 1) % 3];
             var nextPaddle = Enumerable.Range(0, 3).First(i => _curPropertyValues[lastProperty][i] == nextValue);
-            _rememberedValues[stage] = _curPropertyValues[_tableProperties[(lsn + stage + 1) % 10]][nextPaddle];
-            Debug.LogFormat(@"[Simon Spins #{0}] Stage {1}: find paddle where {2} is {3} and remember that its {4} is {5}.", _moduleId, stage + 1, lastProperty, _propertyValueNames[lastProperty][nextValue], _tableProperties[(lsn + stage + 1) % 10], _propertyValueNames[_tableProperties[(lsn + stage + 1) % 10]][_rememberedValues[stage]]);
+            _rememberedValues[stage] = _curPropertyValues[_tableProperties[(_firstRuleIndex + stage + 1) % 20]][nextPaddle];
+            Debug.LogFormat(@"[Simon Spins #{0}] Stage {1}: find paddle where {2} is {3} and remember that its {4} is {5}.", _moduleId, stage + 1, lastProperty, _propertyValueNames[lastProperty][nextValue], _tableProperties[(_firstRuleIndex + stage + 1) % 20], _propertyValueNames[_tableProperties[(_firstRuleIndex + stage + 1) % 20]][_rememberedValues[stage]]);
         }
 
         _windDown = true;
@@ -263,37 +307,82 @@ public class SimonSpinsModule : MonoBehaviour
     private float interp(float t, float from, float to) { return t * (to - from) + from; }
     private Color interp(float t, Color from, Color to) { return new Color(interp(t, from.r, to.r), interp(t, from.g, to.g), interp(t, from.b, to.b), interp(t, from.a, to.a)); }
 
+    private void createAndAddCoroutine(string name, Func<Action, IEnumerator> makeCoroutine)
+    {
+        _running++;
+        Coroutine coroutine = null;
+        coroutine = StartCoroutine(makeCoroutine(() => { _running--; _symbolCoroutines.Remove(coroutine); }));
+        _symbolCoroutines.Add(coroutine);
+    }
+
     private IEnumerator run(int i)
     {
         _running++;
 
         // Change the colors of the arms
-        StartCoroutine(runAnimation(_arms[i][0].material.color, ArmFrameColors[_curPropertyValues[Property.ArmColor][i]], interp, color =>
+        createAndAddCoroutine("arm-colors", cleanUp => runAnimation(Arms[3 * i].material.color, ArmFrameColors[_curPropertyValues[Property.ArmColor][i]], interp, color =>
         {
-            for (int j = 0; j < _arms[i].Length; j++)
-                _arms[i][j].material.color = color;
-        }));
+            for (int j = 0; j < 3; j++)
+                Arms[3 * i + j].material.color = color;
+        }, whenDone: cleanUp));
 
         // Change the colors of the frames
-        StartCoroutine(runAnimation(_headsMR[i].material.color, ArmFrameColors[_curPropertyValues[Property.FrameColor][i]], interp, color => { _headsMR[i].material.color = color; }));
+        createAndAddCoroutine("frame-colors", cleanUp => runAnimation(_headsMR[i].material.color, ArmFrameColors[_curPropertyValues[Property.FrameColor][i]], interp, color =>
+        {
+            _headsMR[i].material.color = color;
+            for (int j = 0; j < 3; j++)
+                ProtrusionsMR[3 * i + j].material.color = color;
+        }, whenDone: cleanUp));
 
         // Change the colors of the faces
-        StartCoroutine(runAnimation(Faces[i].material.color, FaceColors[_curPropertyValues[Property.FaceColor][i]], interp, color => { Faces[i].material.color = color; }));
+        _faceColorFading[i] = true;
+        createAndAddCoroutine("face-colors", cleanUp => runAnimation(Faces[i].material.color, FaceColors[_curPropertyValues[Property.FaceColor][i]], interp,
+            color => { Faces[i].material.color = color; }, whenDone: () => { _faceColorFading[i] = false; cleanUp(); }));
 
         // Flash the symbol
-        var symbolTextureIx = new[] { Property.Symbol, Property.SymbolFill, Property.SymbolSize }.Aggregate(0, (prev, next) => prev * 3 + _curPropertyValues[Property.SymbolSize][i]);
-        _symbolCoroutines.Add(StartCoroutine(flashSymbol(Faces[i], Symbols[i], symbolTextureIx, _curPropertyValues[Property.FaceColor][i], _curPropertyValues[Property.SymbolFlash][i], _curPropertyValues[Property.FaceStripe][i])));
+        var symbolTextureIx = new[] { Property.Symbol, Property.SymbolFill, Property.SymbolSize }.Aggregate(0, (prev, next) => prev * 3 + _curPropertyValues[next][i]);
+        _symbolCoroutines.Add(StartCoroutine(flashSymbol(i, symbolTextureIx, _curPropertyValues[Property.FaceColor][i], _curPropertyValues[Property.SymbolFlash][i], _curPropertyValues[Property.FaceStripe][i])));
 
         // Move each paddle to the correct arm length
-        StartCoroutine(runAnimation(Heads[i].transform.localPosition.z, .0325f + .01625f * _curPropertyValues[Property.ArmLength][i], (t, s, f) => interp(easeCubic(t), s, f), armLen =>
+        _running++;
+        StartCoroutine(runAnimation(
+            initialValue: new { ArmLen = Heads[i].transform.localPosition.z, Thicknesses = Arms.Skip(3 * i).Take(3).Select(arm => arm.transform.localScale.x).ToArray() },
+            finalValue: new { ArmLen = (i == 1 ? .0405f : .04f) + .01625f * _curPropertyValues[Property.ArmLength][i], Thicknesses = Enumerable.Range(0, 3).Select(j => j <= _curPropertyValues[Property.ArmCount][i] ? .02f : .01f).ToArray() },
+            interpolation: (t, s, f) => new { ArmLen = interp(easeCubic(t), s.ArmLen, f.ArmLen), Thicknesses = Enumerable.Range(0, 3).Select(j => interp(easeCubic(t), s.Thicknesses[j], f.Thicknesses[j])).ToArray() },
+            setObjects: inf =>
+            {
+                // Head position
+                Heads[i].transform.localPosition = new Vector3(0, _headHeights[i], inf.ArmLen);
+                // Arms lengths
+                for (int j = 0; j < 3; j++)
+                    Arms[3 * i + j].transform.localScale = new Vector3(inf.Thicknesses[j], inf.Thicknesses[j], inf.ArmLen * 10 - .18f);
+            },
+            whenDone: () => { _running--; }));
+
+        // Number of arms
+        _running += 3;
+        foreach (var j in Enumerable.Range(0, 3))   // use foreach instead of for so that the variable j can be safely captured
+            StartCoroutine(runAnimation(
+                initialValue: Arms[3 * i + j].transform.localPosition.x,
+                finalValue: .005f * Math.Min(j, _curPropertyValues[Property.ArmCount][i]) - .0025f * _curPropertyValues[Property.ArmCount][i],
+                interpolation: (t, s, f) => interp(easeCubic(t), s, f),
+                setObjects: armPos => { Arms[3 * i + j].transform.localPosition = new Vector3(armPos, 0, 0); },
+                whenDone: () => { _running--; }));
+
+        // Number and position of the protrusions
+        ProtrusionParents[i].localEulerAngles = new Vector3(0, (i == 1 ? 72 : 90) * (_curPropertyValues[Property.ProtrusionPlacement][i] - 1), 0);
+        for (int j = 0; j < 3; j++)
         {
-            // Head position
-            Heads[i].transform.localPosition = new Vector3(0, _headHeights[i], armLen);
-            // Arms lengths
-            var thickness = i == 2 ? .02f : .03f;
-            for (int j = 0; j < _arms[i].Length; j++)
-                _arms[i][j].transform.localScale = new Vector3(thickness, thickness, armLen * 10 - .18f);
-        }));
+            Protrusions[3 * i + j].gameObject.SetActive(j <= _curPropertyValues[Property.ProtrusionCount][i]);
+            if (i == 0)
+                Protrusions[3 * i + j].localEulerAngles = new Vector3(0, 16 * j - 8 * _curPropertyValues[Property.ProtrusionCount][i]);
+            else
+                Protrusions[3 * i + j].localPosition = new Vector3(.035f * j - .0175f * _curPropertyValues[Property.ProtrusionCount][i], 0, i == 1 ? -.0175f : -.011f);
+        }
+
+        // Show the protrusions
+        _running++;
+        StartCoroutine(runAnimation(i == 2 ? .6f : .8f, i == 2 ? .8f : 1, (t, s, f) => interp(easeCubic(t), s, f), scale => { ProtrusionParents[i].localScale = new Vector3(scale, scale, scale); }, whenDone: () => { _running--; }));
 
         // Move each paddle to the correct level (vertical position)
         // Execute this here so that the continuous paddle-rotation animation doesn’t start until the paddles are at the correct height
@@ -301,55 +390,68 @@ public class SimonSpinsModule : MonoBehaviour
         while (e.MoveNext())
             yield return e.Current;
 
-        // Flip the paddle
+        // Flip the paddle (also sets the back symbols)
         StartCoroutine(flipPaddle(i, _curPropertyValues[Property.PaddleFlip][i]));
 
-        var armInitial = _armAngles[i];
-        var symbolInitial = _symbolAngles[i];
-        _armSpeeds[i] = (_curPropertyValues[Property.PaddleSpin][i] - 1) * Rnd.Range(40f, 60f); // degrees per second
-        var symbolAngularSpeed = (_curPropertyValues[Property.SymbolSpin][i] - 1) * Rnd.Range(120f, 140f); // degrees per second
-
-        var elapsed = 0f;
-        while (elapsed < _accelDecelDuration)
+        _armSpeeds[i] = 0;
+        if (!_windDown)
         {
-            // Quadratic function yielding constant acceleration such that the velocity at time d (duration) is s (speed)
-            _armAngles[i] = armInitial + _armSpeeds[i] * elapsed * elapsed / _accelDecelDuration / 2;
-            Paddles[i].localEulerAngles = new Vector3(0, _armAngles[i], _flipAngles[i]);
-            Symbols[i].transform.localEulerAngles = new Vector3(90, symbolInitial + symbolAngularSpeed * elapsed * elapsed / _accelDecelDuration / 2, 0);
-            yield return null;
-            elapsed += Time.deltaTime;
-        }
-        _armAngles[i] = armInitial + _armSpeeds[i] * _accelDecelDuration / 2;
-        _symbolAngles[i] = symbolInitial + symbolAngularSpeed * _accelDecelDuration / 2;
-        yield return null;
+            var paddleAcceleration = (_curPropertyValues[Property.PaddleSpin][i] - 1) * Rnd.Range(40f, 60f) / _accelDecelDuration;    // degrees per second per second
+            var symbolAcceleration = (_curPropertyValues[Property.SymbolSpin][i] - 1) * Rnd.Range(120f, 140f) / _accelDecelDuration; // degrees per second per second
+            var symbolAngularSpeed = 0f;
 
-        while (!_windDown || _armDecelDelay[i] > 0)
-        {
-            if (_windDown)
-                _armDecelDelay[i] -= Time.deltaTime;
-            _armAngles[i] += Time.deltaTime * _armSpeeds[i];
-            _symbolAngles[i] += Time.deltaTime * symbolAngularSpeed;
-            Paddles[i].localEulerAngles = new Vector3(0, _armAngles[i], _flipAngles[i]);
-            Symbols[i].transform.localEulerAngles = new Vector3(90, _symbolAngles[i], 0);
-            yield return null;
-        }
+            // ACCELERATION
+            var elapsed = 0f;
+            while (elapsed < _accelDecelDuration)
+            {
+                _armSpeeds[i] += Time.deltaTime * paddleAcceleration;
+                _armAngles[i] += Time.deltaTime * _armSpeeds[i];
+                Paddles[i].localEulerAngles = new Vector3(0, _armAngles[i], _flipAngles[i]);
 
-        armInitial = _armAngles[i];
-        symbolInitial = _symbolAngles[i];
-        elapsed = Time.deltaTime;
-        while (elapsed < _accelDecelDuration)
-        {
-            // Reverse of the quadratic function above
-            _armAngles[i] = armInitial + _armSpeeds[i] * elapsed * (1 - elapsed / _accelDecelDuration / 2);
-            Paddles[i].localEulerAngles = new Vector3(0, _armAngles[i], _flipAngles[i]);
-            Symbols[i].transform.localEulerAngles = new Vector3(90, symbolInitial + symbolAngularSpeed * elapsed * (1 - elapsed / _accelDecelDuration / 2), 0);
-            elapsed += Time.deltaTime;
-            yield return null;
+                symbolAngularSpeed += Time.deltaTime * symbolAcceleration;
+                _symbolAngles[i] += Time.deltaTime * symbolAngularSpeed;
+                Symbols[i].transform.localEulerAngles = new Vector3(90, _symbolAngles[i], 0);
+
+                yield return null;
+                elapsed += Time.deltaTime;
+
+                if (_windDown)
+                    break;
+            }
+
+            // CONTINUOUS MOVEMENT
+            while (!_windDown || _armDecelDelay[i] > 0)
+            {
+                if (_windDown)
+                    _armDecelDelay[i] -= Time.deltaTime;
+                _armAngles[i] += Time.deltaTime * _armSpeeds[i];
+                _symbolAngles[i] += Time.deltaTime * symbolAngularSpeed;
+                Paddles[i].localEulerAngles = new Vector3(0, _armAngles[i], _flipAngles[i]);
+                Symbols[i].transform.localEulerAngles = new Vector3(90, _symbolAngles[i], 0);
+                yield return null;
+            }
+
+            // Disappear the protrusions
+            StartCoroutine(runAnimation(i == 2 ? .8f : 1, i == 2 ? .6f : .8f, (t, s, f) => interp(easeCubic(t), s, f), scale => { ProtrusionParents[i].localScale = new Vector3(scale, scale, scale); }, suppressDelay: true));
+
+            if (paddleAcceleration != 0)
+            {
+                // DECELERATION
+                while (Mathf.Sign(_armSpeeds[i]) == Mathf.Sign(paddleAcceleration))
+                {
+                    _armSpeeds[i] -= Time.deltaTime * paddleAcceleration;
+                    _armAngles[i] += Time.deltaTime * _armSpeeds[i];
+                    Paddles[i].localEulerAngles = new Vector3(0, _armAngles[i], _flipAngles[i]);
+
+                    symbolAngularSpeed -= Time.deltaTime * symbolAcceleration;
+                    _symbolAngles[i] += Time.deltaTime * symbolAngularSpeed;
+                    Symbols[i].transform.localEulerAngles = new Vector3(90, _symbolAngles[i], 0);
+
+                    yield return null;
+                }
+            }
+            _armSpeeds[i] = 0;
         }
-        _armAngles[i] = armInitial + _armSpeeds[i] * _accelDecelDuration / 2;
-        _symbolAngles[i] = symbolInitial + symbolAngularSpeed * _accelDecelDuration / 2;
-        Paddles[i].localEulerAngles = new Vector3(0, _armAngles[i], _flipAngles[i]);
-        Symbols[i].transform.localEulerAngles = new Vector3(90, _symbolAngles[i], 0);
         _running--;
     }
 
@@ -373,78 +475,95 @@ public class SimonSpinsModule : MonoBehaviour
 
     private IEnumerator flipPaddle(int i, int value)
     {
-        // No flipping
-        if (value == 2)
-            yield break;
+        var pattern = _curPropertyValues[Property.BackSymbolPattern][i];
+        var dist = new[] { .045f, .0375f, .03f }[i];
+        for (int j = 0; j < 2; j++)
+        {
+            BackSymbols[2 * i + j].material.mainTexture = BackSymbolTextures[3 * _curPropertyValues[Property.BackSymbolColor][i] + _curPropertyValues[Property.BackSymbol][i]];
+            BackSymbols[2 * i + j].transform.localPosition = new Vector3(pattern == 2 ? -dist + 2 * j * dist : 0, -.0001f, pattern == 1 ? -dist + 2 * j * dist : 0);
+            BackSymbols[2 * i + j].gameObject.SetActive(j == 0 || pattern != 0);
+        }
 
         _running++;
 
-        const float duration = 1.3f;
+        const float flipDuration = 1.3f;
+        var curPermaflipped = false;
 
-        while (!_windDown)
+        while (!_windDown || curPermaflipped)
         {
-            yield return new WaitForSeconds(Rnd.Range(1.5f, 2f));
+            var waitElapsed = 0f;
+            var waitDuration = Rnd.Range(1.5f, 2f);
+            while (waitElapsed < waitDuration && _permaflipped[i] == curPermaflipped && !_windDown)
+            {
+                yield return null;
+                waitElapsed += Time.deltaTime;
+            }
 
             // Make sure the flipping won’t crash the paddle into another one
             wait:
             yield return null;
-            if (_windDown)
+            if (_windDown && !curPermaflipped)
                 break;
             for (int j = 0; j < 3; j++)
                 if (j != i)
                 {
-                    var myDirection = _curPropertyValues[Property.PaddleSpin][i] - 1;
-                    var theirDirection = _curPropertyValues[Property.PaddleSpin][j] - 1;
-                    var relativeSpeed = theirDirection - myDirection;
-
+                    var relativeSpeed = _armSpeeds[j] - _armSpeeds[i];
                     if (relativeSpeed < 0)
                     {
-                        var timeUntilMeet = (((_armAngles[j] - _armAngles[i]) % 360 + 360) % 360) / (-relativeSpeed) / 50;
-                        if (timeUntilMeet < duration * 1.5f)
+                        var timeUntilMeet = (((_armAngles[j] - _armAngles[i]) % 360 + 360) % 360) / (-relativeSpeed);
+                        if (timeUntilMeet < flipDuration * 1.5f)
                             goto wait;
-                        var timeSinceLastMet = (((_armAngles[i] - _armAngles[j]) % 360 + 360) % 360) / (-relativeSpeed) / 50;
-                        if (timeSinceLastMet < duration * .75f)
+                        var timeSinceLastMet = (((_armAngles[i] - _armAngles[j]) % 360 + 360) % 360) / (-relativeSpeed);
+                        if (timeSinceLastMet < flipDuration * .75f)
                             goto wait;
                     }
                     else
                     {
-                        var timeUntilMeet = (((_armAngles[i] - _armAngles[j]) % 360 + 360) % 360) / relativeSpeed / 50;
-                        if (timeUntilMeet < duration * 1.5f)
+                        var timeUntilMeet = (((_armAngles[i] - _armAngles[j]) % 360 + 360) % 360) / relativeSpeed;
+                        if (timeUntilMeet < flipDuration * 1.5f)
                             goto wait;
-                        var timeSinceLastMet = (((_armAngles[j] - _armAngles[i]) % 360 + 360) % 360) / relativeSpeed / 50;
-                        if (timeSinceLastMet < duration * .75f)
+                        var timeSinceLastMet = (((_armAngles[j] - _armAngles[i]) % 360 + 360) % 360) / relativeSpeed;
+                        if (timeSinceLastMet < flipDuration * .75f)
                             goto wait;
                     }
                 }
 
             var elapsed = 0f;
-            while (elapsed < duration)
-            {
-                yield return null;
-                elapsed += Time.deltaTime;
-                // We only set the variable here; the object’s actual rotation is set in run()
-                _flipAngles[i] = 360 * easeCubic(elapsed / duration) * (value == 0 ? 1 : -1);
-            }
+            var wantPermaflipped = _permaflipped[i] && !_windDown;
+            if (wantPermaflipped != curPermaflipped || value != 2)
+                while (elapsed < flipDuration)
+                {
+                    yield return null;
+                    elapsed += Time.deltaTime;
+                    _flipAngles[i] = (wantPermaflipped != curPermaflipped ? 180 : 360) * easeCubic(elapsed / flipDuration) * (value == 0 ? 1 : -1) + (curPermaflipped ? 180 : 0);
+                    Paddles[i].localEulerAngles = new Vector3(0, _armAngles[i], _flipAngles[i]);
+                }
+            curPermaflipped = wantPermaflipped;
         }
+        _permaflipped[i] = false;
         _running--;
     }
 
-    private IEnumerator flashSymbol(MeshRenderer face, MeshRenderer symbol, int symbolIx, int faceColor, int flashPattern, int stripe)
+    private IEnumerator flashSymbol(int i, int symbolIx, int faceColor, int flashPattern, int stripe)
     {
         _running++;
 
         var stripeTexture = StripeTextures[stripe];
 
         // flash on
-        symbol.material.mainTexture = SymbolTextures[symbolIx];
+        Symbols[i].material.mainTexture = SymbolTextures[symbolIx];
         var blinkLengths = new[] { .1f, .4f, .25f, .25f, .4f, .1f, 0f };
         for (int j = 0; j < blinkLengths.Length; j++)
         {
-            symbol.gameObject.SetActive(j % 2 == 0);
-            face.material.mainTexture = j % 2 == 0 ? stripeTexture : null;
-            yield return new WaitForSeconds(blinkLengths[j] * .5f);
+            Symbols[i].gameObject.SetActive(j % 2 == 0);
+            Faces[i].material.mainTexture = j % 2 == 0 ? stripeTexture : null;
+            yield return new WaitForSeconds(blinkLengths[j] * .2f);
         }
 
+        while (_faceColorFading[i])
+            yield return null;
+
+        // continuous flashing
         while (!_windDown)
         {
             yield return new WaitForSeconds(Rnd.Range(.6f, 1.2f));
@@ -452,27 +571,27 @@ public class SimonSpinsModule : MonoBehaviour
             switch (flashPattern)
             {
                 case 1: // on/off
-                    symbol.gameObject.SetActive(false);
+                    Symbols[i].gameObject.SetActive(false);
                     break;
                 case 2: // invert
-                    symbol.material.mainTexture = SymbolTextures[symbolIx + 27 * (faceColor + 1)];
-                    face.material.color = Color.black;
+                    Symbols[i].material.mainTexture = SymbolTextures[symbolIx + 27 * (faceColor + 1)];
+                    Faces[i].material.color = Color.black;
                     break;
             }
 
             yield return new WaitForSeconds(Rnd.Range(.6f, 1.2f));
 
-            symbol.gameObject.SetActive(true);
-            symbol.material.mainTexture = SymbolTextures[symbolIx];
-            face.material.color = FaceColors[faceColor];
+            Symbols[i].gameObject.SetActive(true);
+            Symbols[i].material.mainTexture = SymbolTextures[symbolIx];
+            Faces[i].material.color = FaceColors[faceColor];
         }
 
         // flash off
         for (int j = 0; j < blinkLengths.Length; j++)
         {
-            symbol.gameObject.SetActive(j % 2 != 0);
-            face.material.mainTexture = j % 2 != 0 ? stripeTexture : null;
-            yield return new WaitForSeconds(blinkLengths[j] * .5f);
+            Symbols[i].gameObject.SetActive(j % 2 != 0);
+            Faces[i].material.mainTexture = j % 2 != 0 ? stripeTexture : null;
+            yield return new WaitForSeconds(blinkLengths[j] * .2f);
         }
 
         _running--;
@@ -482,7 +601,7 @@ public class SimonSpinsModule : MonoBehaviour
     {
         if (!suppressDelay)
             yield return new WaitForSeconds(Rnd.Range(.1f, 1.5f));
-        var duration = Rnd.Range(1f, 1.5f);
+        var duration = Rnd.Range(1.5f, 2.5f);
         var elapsed = 0f;
         while (elapsed < duration)
         {

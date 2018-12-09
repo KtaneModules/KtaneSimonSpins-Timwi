@@ -302,12 +302,6 @@ Prefab:
       propertyPath: m_Materials.Array.data[0]
       value: 
       objectReference: {fileID: 2100000, guid: 15c95a7eef23cc347bec7faac5e5a6cb, type: 2}
-    - target: {fileID: 114848120511536268, guid: 8814ea52310d2614a9feda02ec355ae4,
-        type: 2}
-      propertyPath: EdgeworkConfiguration
-      value: 
-      objectReference: {fileID: 11400000, guid: af4b7b1451993c748b99309ef4c45cc1,
-        type: 2}
     m_RemovedComponents: []
   m_ParentPrefab: {fileID: 100100000, guid: 8814ea52310d2614a9feda02ec355ae4, type: 2}
   m_IsPrefabParent: 0
@@ -479,7 +473,7 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 90, y: 0, z: 0}
---- !u!1001 &1825640679
+--- !u!1001 &1288085164
 Prefab:
   m_ObjectHideFlags: 0
   serializedVersion: 2
