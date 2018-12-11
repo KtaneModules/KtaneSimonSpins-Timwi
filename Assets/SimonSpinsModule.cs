@@ -498,18 +498,50 @@ public class SimonSpinsModule : MonoBehaviour
         var symbolAcceleration = (_curPropertyValues[Property.SymbolSpin][i] - 1) * Rnd.Range(48f, 56f); // degrees per second per second
         var symbolAngularSpeed = 0f;
 
-        if (_curPropertyValues[Property.PaddleSpin][i] == 1)    // paddle won’t move, so it doesn’t need to accelerate or decelerate
+        if (_curPropertyValues[Property.PaddleSpin][i] == 1)    // paddle won’t move, so only rotate the symbol
         {
             DebugLeds[i].material.color = Color.white;
-            while (!_windDown)
+
+            // ACCELERATION
+            DebugLeds[i].material.color = Color.green;
+            const float accelDecelDuration = 2.5f;
+            var elapsed = 0f;
+            while (elapsed < accelDecelDuration && !_windDown)
+            {
+                symbolAngularSpeed += Time.deltaTime * symbolAcceleration;
+                _symbolAngles[i] += Time.deltaTime * symbolAngularSpeed;
+                Symbols[i].transform.localEulerAngles = new Vector3(90, _symbolAngles[i], 0);
                 yield return null;
+                elapsed += Time.deltaTime;
+            }
+
+            // CONTINUOUS MOVEMENT
+            DebugLeds[i].material.color = Color.white;
+            while (!_windDown)
+            {
+                _symbolAngles[i] += Time.deltaTime * symbolAngularSpeed;
+                Symbols[i].transform.localEulerAngles = new Vector3(90, _symbolAngles[i], 0);
+                yield return null;
+            }
+
+            // DECELERATION
+            DebugLeds[i].material.color = Color.red;
+            elapsed = 0f;
+            while (elapsed < accelDecelDuration)
+            {
+                symbolAngularSpeed -= Time.deltaTime * symbolAcceleration;
+                _symbolAngles[i] += Time.deltaTime * symbolAngularSpeed;
+                Symbols[i].transform.localEulerAngles = new Vector3(90, _symbolAngles[i], 0);
+                yield return null;
+                elapsed += Time.deltaTime;
+            }
         }
         else if (!_windDown)    // short-circuit if the user already pressed a paddle while the “move each paddle to the correct level” animation was still running
         {
             // ACCELERATION
             DebugLeds[i].material.color = Color.green;
             var elapsed = 0f;
-            while (Mathf.Abs(_armSpeeds[i]) < Mathf.Abs(targetArmSpeed))
+            while (Mathf.Abs(_armSpeeds[i]) < Mathf.Abs(targetArmSpeed) && !_windDown)
             {
                 _armSpeeds[i] += Time.deltaTime * _armAcceleration[i];
                 _armAngles[i] += Time.deltaTime * _armSpeeds[i];
@@ -521,9 +553,6 @@ public class SimonSpinsModule : MonoBehaviour
 
                 yield return null;
                 elapsed += Time.deltaTime;
-
-                if (_windDown)
-                    break;
             }
 
             // CONTINUOUS MOVEMENT
