@@ -616,10 +616,14 @@ public class SimonSpinsModule : MonoBehaviour
         const float flipDuration = 1.3f;
         var curPermaflipped = false;
 
+        yield return null;
+        DebugLeds[24 + i].material.color = Color.white;
+
         while (!_windDown || curPermaflipped)
         {
             var waitElapsed = 0f;
             var waitDuration = Rnd.Range(1.5f, 2f);
+            DebugLeds[24 + i].material.color = Color.blue;
             while (waitElapsed < waitDuration && _permaflipped[i] == curPermaflipped && !_windDown)
             {
                 yield return null;
@@ -627,36 +631,23 @@ public class SimonSpinsModule : MonoBehaviour
             }
 
             // Make sure the flipping won’t crash the paddle into another one
+            DebugLeds[24 + i].material.color = Color.red;
             wait:
             yield return null;
             if (_windDown && !curPermaflipped)
                 break;
+            // Make sure the two paddles aren’t within 45° of each other at any point during the flipping animation
+            const float allowedAngle = 45;
             for (int j = 0; j < 3; j++)
-                if (j != i)
-                {
-                    var relativeSpeed = _armSpeeds[j] - _armSpeeds[i];
-                    if (relativeSpeed < 0)
-                    {
-                        var timeUntilMeet = (((_armAngles[j] - _armAngles[i]) % 360 + 360) % 360) / (-relativeSpeed);
-                        if (timeUntilMeet < flipDuration * 1.5f)
-                            goto wait;
-                        var timeSinceLastMet = (((_armAngles[i] - _armAngles[j]) % 360 + 360) % 360) / (-relativeSpeed);
-                        if (timeSinceLastMet < flipDuration * .75f)
-                            goto wait;
-                    }
-                    else
-                    {
-                        var timeUntilMeet = (((_armAngles[i] - _armAngles[j]) % 360 + 360) % 360) / relativeSpeed;
-                        if (timeUntilMeet < flipDuration * 1.5f)
-                            goto wait;
-                        var timeSinceLastMet = (((_armAngles[j] - _armAngles[i]) % 360 + 360) % 360) / relativeSpeed;
-                        if (timeSinceLastMet < flipDuration * .75f)
-                            goto wait;
-                    }
-                }
+                if (j != i && Enumerable.Range(0, 5)
+                        .Select(n => n / 4f)
+                        .Select(factor => ((_armAngles[j] + _armSpeeds[j] * flipDuration * factor - (_armAngles[i] + _armSpeeds[i] * flipDuration * factor)) % 360 + 360) % 360)
+                        .Any(angularDifference => angularDifference < allowedAngle || angularDifference > 360 - allowedAngle))
+                    goto wait;
 
             var elapsed = 0f;
             var wantPermaflipped = _permaflipped[i] && !_windDown;
+            DebugLeds[24 + i].material.color = wantPermaflipped != curPermaflipped ? Color.yellow : Color.green;
             if (wantPermaflipped != curPermaflipped || value != 2)
                 while (elapsed < flipDuration)
                 {
