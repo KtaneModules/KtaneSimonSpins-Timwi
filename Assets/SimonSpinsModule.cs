@@ -96,6 +96,7 @@ public class SimonSpinsModule : MonoBehaviour
     private int _running { get { return _runningBacking; } set { _runningBacking = value; DebugRunning.text = value.ToString(); } }
     private readonly float[] _armAngles = new float[] { 0, 120, -120 };
     private readonly float[] _armSpeeds = new float[] { 0, 0, 0 };
+    private readonly float[] _armAcceleration = new float[] { 20, 20, 20 };
     private readonly float[] _armDecelDelay = new float[] { 0, 0, 0 };
     private readonly float[] _symbolAngles = new float[] { 30, 110, 190 };
     private readonly float[] _headHeights = new float[] { -.003f, -.003f, -.0025f };
@@ -107,8 +108,6 @@ public class SimonSpinsModule : MonoBehaviour
 
     private readonly List<CoroutineInfo> _activeCoroutines = new List<CoroutineInfo>();
     private readonly Dictionary<Property, int[]> _curPropertyValues = new Dictionary<Property, int[]>();
-
-    const float _accelDecelDuration = 2.5f;
 
     private Property[] _tableProperties;
     private int[][] _tablePropertyValues;
@@ -143,7 +142,7 @@ public class SimonSpinsModule : MonoBehaviour
         _tablePropertyValues = _tableProperties.Select(p => rnd.ShuffleFisherYates(Enumerable.Range(0, 3).ToArray())).ToArray();
 
         for (int i = 0; i < 20; i++)
-            Debug.LogFormat(@"<Simon Spins #{0}> {1} = {2}", _moduleId, _tableProperties[i], _tablePropertyValues[i].Select(x => _propertyValueNames[_tableProperties[i]][x]).Join(", "));
+            Debug.LogFormat(@"<Simon Spins #{0}> RULE {1} = {2} = {3}", _moduleId, i, _tableProperties[i], _tablePropertyValues[i].Select(x => _propertyValueNames[_tableProperties[i]][x]).Join(", "));
 
         var snRulePairs = new Func<int>[][]
         {
@@ -307,15 +306,15 @@ public class SimonSpinsModule : MonoBehaviour
             // Determine the current position (angle) of the paddle that isn’t rotating.
             // The other paddles cannot stop anywhere within angleDifference° of that.
             var stationaryPaddle = Enumerable.Range(0, 3).First(i => _curPropertyValues[Property.PaddleSpin][i] == 1);
-            var a = _armAngles[stationaryPaddle];
             var angularRegionsTaken = new AngleRegions();
-            angularRegionsTaken.AddRegion(a - angleDifference, a + angleDifference);
+            angularRegionsTaken.AddRegion(_armAngles[stationaryPaddle] - angleDifference, _armAngles[stationaryPaddle] + angleDifference);
 
             for (int i = 0; i < 3; i++)
                 if (i != stationaryPaddle)
                 {
                     // Where would this paddle end up if it were to stop now?
-                    var endAngle = _armAngles[i] + _accelDecelDuration * _armSpeeds[i] / 2;
+                    var timeToStop = _armSpeeds[i] / _armAcceleration[i];
+                    var endAngle = _armAngles[i] + _armSpeeds[i] * timeToStop - _armAcceleration[i] * Mathf.Pow(timeToStop, 2) / 2;
                     var allowedEndAngle = _armSpeeds[i] < 0 ? angularRegionsTaken.FindPrevious(endAngle) : angularRegionsTaken.FindNext(endAngle);
                     // Delay the deceleration so that it will stop at an allowed angle
                     _armDecelDelay[i] = ((((allowedEndAngle - endAngle) * Mathf.Sign(_armSpeeds[i])) % 360 + 360) % 360) / Mathf.Abs(_armSpeeds[i]);
@@ -494,11 +493,12 @@ public class SimonSpinsModule : MonoBehaviour
         StartCoroutineWithCleanup(24 + i, false, flipPaddle(i, _curPropertyValues[Property.PaddleFlip][i]));
 
         _armSpeeds[i] = 0;
-        var paddleAcceleration = (_curPropertyValues[Property.PaddleSpin][i] - 1) * Rnd.Range(40f, 60f) / _accelDecelDuration;    // degrees per second per second
-        var symbolAcceleration = (_curPropertyValues[Property.SymbolSpin][i] - 1) * Rnd.Range(120f, 140f) / _accelDecelDuration; // degrees per second per second
+        var targetArmSpeed = Rnd.Range(40f, 60f);
+        _armAcceleration[i] = (_curPropertyValues[Property.PaddleSpin][i] - 1) * Rnd.Range(16f, 24f); // degrees per second per second
+        var symbolAcceleration = (_curPropertyValues[Property.SymbolSpin][i] - 1) * Rnd.Range(48f, 56f); // degrees per second per second
         var symbolAngularSpeed = 0f;
 
-        if (_curPropertyValues[Property.PaddleSpin][i] == 1)    // paddle won’t move, so it doesn’t need to accelerate or decelerate either
+        if (_curPropertyValues[Property.PaddleSpin][i] == 1)    // paddle won’t move, so it doesn’t need to accelerate or decelerate
         {
             DebugLeds[i].material.color = Color.white;
             while (!_windDown)
@@ -509,9 +509,9 @@ public class SimonSpinsModule : MonoBehaviour
             // ACCELERATION
             DebugLeds[i].material.color = Color.green;
             var elapsed = 0f;
-            while (elapsed < _accelDecelDuration)
+            while (Mathf.Abs(_armSpeeds[i]) < Mathf.Abs(targetArmSpeed))
             {
-                _armSpeeds[i] += Time.deltaTime * paddleAcceleration;
+                _armSpeeds[i] += Time.deltaTime * _armAcceleration[i];
                 _armAngles[i] += Time.deltaTime * _armSpeeds[i];
                 Paddles[i].localEulerAngles = new Vector3(0, _armAngles[i], _flipAngles[i]);
 
@@ -533,17 +533,19 @@ public class SimonSpinsModule : MonoBehaviour
                 if (_windDown)
                     _armDecelDelay[i] -= Time.deltaTime;
                 _armAngles[i] += Time.deltaTime * _armSpeeds[i];
-                _symbolAngles[i] += Time.deltaTime * symbolAngularSpeed;
                 Paddles[i].localEulerAngles = new Vector3(0, _armAngles[i], _flipAngles[i]);
+
+                _symbolAngles[i] += Time.deltaTime * symbolAngularSpeed;
                 Symbols[i].transform.localEulerAngles = new Vector3(90, _symbolAngles[i], 0);
+
                 yield return null;
             }
 
             // DECELERATION
             DebugLeds[i].material.color = Color.red;
-            while (Mathf.Sign(_armSpeeds[i]) == Mathf.Sign(paddleAcceleration))
+            while (Mathf.Sign(_armSpeeds[i]) == Mathf.Sign(_armAcceleration[i]))
             {
-                _armSpeeds[i] -= Time.deltaTime * paddleAcceleration;
+                _armSpeeds[i] -= Time.deltaTime * _armAcceleration[i];
                 _armAngles[i] += Time.deltaTime * _armSpeeds[i];
                 Paddles[i].localEulerAngles = new Vector3(0, _armAngles[i], _flipAngles[i]);
 
