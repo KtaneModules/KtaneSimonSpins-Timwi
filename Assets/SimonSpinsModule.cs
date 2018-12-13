@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using KModkit;
 using SimonSpins;
 using UnityEngine;
@@ -111,7 +112,7 @@ public class SimonSpinsModule : MonoBehaviour
 
     private Property[] _tableProperties;
     private int[][] _tablePropertyValues;
-    private int[] _rememberedValues;
+    private int[] _rememberedValues;    // _rememberedValues == null means module is solved
     private int _subprogress;
     private int _numberOfStages;
     private int _firstRuleIndex;
@@ -364,12 +365,13 @@ public class SimonSpinsModule : MonoBehaviour
         else
         {
             var stage = _rememberedValues.Length;
+            Debug.LogFormat(@"[Simon Spins #{0}] Stage {1}: press paddles where {2}...", _moduleId, stage + 1, _rememberedValues.Select((v, ix) => string.Format("{0} is {1}", _tableProperties[(_firstRuleIndex + ix + 1) % 20], _propertyValueNames[_tableProperties[(_firstRuleIndex + ix + 1) % 20]][v])).Join("; "));
             Array.Resize(ref _rememberedValues, stage + 1);
             var lastProperty = _tableProperties[(_firstRuleIndex + stage) % 20];
             var nextValue = _tablePropertyValues[(_firstRuleIndex + stage) % 20][(Array.IndexOf(_tablePropertyValues[(_firstRuleIndex + stage) % 20], _rememberedValues[stage - 1]) + 1) % 3];
             var nextPaddle = Enumerable.Range(0, 3).First(i => _curPropertyValues[lastProperty][i] == nextValue);
             _rememberedValues[stage] = _curPropertyValues[_tableProperties[(_firstRuleIndex + stage + 1) % 20]][nextPaddle];
-            Debug.LogFormat(@"[Simon Spins #{0}] Stage {1}: find paddle where {2} is {3} and remember that its {4} is {5}.", _moduleId, stage + 1, lastProperty, _propertyValueNames[lastProperty][nextValue], _tableProperties[(_firstRuleIndex + stage + 1) % 20], _propertyValueNames[_tableProperties[(_firstRuleIndex + stage + 1) % 20]][_rememberedValues[stage]]);
+            Debug.LogFormat(@"[Simon Spins #{0}] Stage {1}: ...then find paddle where {2} is {3} and remember that its {4} is {5}.", _moduleId, stage + 1, lastProperty, _propertyValueNames[lastProperty][nextValue], _tableProperties[(_firstRuleIndex + stage + 1) % 20], _propertyValueNames[_tableProperties[(_firstRuleIndex + stage + 1) % 20]][_rememberedValues[stage]]);
         }
 
         _windDown = true;
@@ -648,7 +650,7 @@ public class SimonSpinsModule : MonoBehaviour
         yield return null;
         DebugLeds[24 + i].material.color = Color.white;
 
-        while (!_windDown || curPermaflipped)
+        while (!_windDown || (curPermaflipped && _rememberedValues != null))        // _rememberedValues == null means module is solved
         {
             var waitElapsed = 0f;
             var waitDuration = Rnd.Range(1.5f, 2f);
@@ -757,10 +759,81 @@ public class SimonSpinsModule : MonoBehaviour
             whenDone();
     }
 
+#pragma warning disable 414
+    private readonly string TwitchHelpMessage = @"!{0} c, s, p [press the circular, square, pentagonal paddle in order] | !{0} flip c, s, p [flip paddles to the other side (long-press)] | !{0} tilt";
+#pragma warning restore 414
+
     private IEnumerator ProcessTwitchCommand(string command)
     {
-        if (command == "wd")
-            _windDown = true;
-        yield break;
+        Match m;
+        if ((m = Regex.Match(command, @"^\s*[crpsq,;\s]+\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)).Success)
+        {
+            var paddles = new List<KMSelectable>();
+            for (int i = 0; i < command.Length; i++)
+            {
+                switch (char.ToLowerInvariant(command[i]))
+                {
+                    case 'c': case 'r': paddles.Add(Heads[0]); break;
+                    case 'p': paddles.Add(Heads[1]); break;
+                    case 's': case 'q': paddles.Add(Heads[2]); break;
+                }
+            }
+            yield return null;
+            yield return paddles;
+        }
+        else if ((m = Regex.Match(command, @"^\s*flip\s+([crpsq,;\s]+)\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)).Success)
+        {
+            var paddles = new List<KMSelectable>();
+            var cmd = m.Groups[1].Value;
+            for (int i = 0; i < cmd.Length; i++)
+            {
+                switch (char.ToLowerInvariant(cmd[i]))
+                {
+                    case 'c': case 'r': paddles.Add(Heads[0]); break;
+                    case 'p': paddles.Add(Heads[1]); break;
+                    case 's': case 'q': paddles.Add(Heads[2]); break;
+                }
+            }
+            yield return null;
+            foreach (var paddle in paddles)
+            {
+                yield return paddle;
+                yield return new WaitForSeconds(.9f);
+                yield return paddle;
+                yield return new WaitForSeconds(.1f);
+            }
+        }
+        else if (Regex.IsMatch(command, @"^\s*tilt\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        {
+            yield return null;
+            var frontFace = transform.parent.parent.localEulerAngles.z < 45 || transform.parent.parent.localEulerAngles.z > 315;
+
+            var angle = -60f;
+            var targetAngle = frontFace ? -angle : angle;
+
+            var duration = 1.2f;
+            var elapsed = 0f;
+            while (elapsed < duration)
+            {
+                var lerp = Quaternion.Euler(interp(easeCubic(elapsed / duration), 0, targetAngle), 0, 0);
+                yield return new Quaternion[] { lerp, lerp };
+                yield return null;
+                elapsed += Time.deltaTime;
+            }
+            yield return new Quaternion[] { Quaternion.Euler(targetAngle, 0, 0), Quaternion.Euler(targetAngle, 0, 0) };
+
+            yield return new WaitForSeconds(2.5f);
+
+            elapsed = 0f;
+            while (elapsed < duration)
+            {
+                var lerp = Quaternion.Euler(interp(easeCubic(elapsed / duration), targetAngle, 0), 0, 0);
+                yield return new Quaternion[] { lerp, lerp };
+                yield return null;
+                elapsed += Time.deltaTime;
+            }
+            yield return new Quaternion[] { Quaternion.identity, Quaternion.identity };
+            yield return null;
+        }
     }
 }
