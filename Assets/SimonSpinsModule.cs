@@ -135,6 +135,7 @@ public class SimonSpinsModule : MonoBehaviour
         _curPropertyValues[Property.PaddleShape] = new[] { 0, 1, 2 };
 
         var rnd = RuleSeedable.GetRNG();
+        Debug.LogFormat("[Simon Spins #{0}] Using rule seed: {1}", _moduleId, rnd.Seed);
         for (var i = rnd.Next(0, 24); i >= 0; i--)
             rnd.NextDouble();
 
