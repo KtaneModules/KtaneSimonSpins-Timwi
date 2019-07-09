@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using KModkit;
-using SimonSpins;
 using UnityEngine;
 
 using Rnd = UnityEngine.Random;
@@ -498,6 +497,7 @@ public class SimonSpinsModule : MonoBehaviour
         _armSpeeds[i] = 0;
         var targetArmSpeed = Rnd.Range(40f, 60f);
         _armAcceleration[i] = (_curPropertyValues[Property.PaddleSpin][i] - 1) * Rnd.Range(16f, 24f); // degrees per second per second
+        //Debug.LogFormat(@"<Simon Spins #{0}> <{1}> Arm {2} target speed = {3}, acceleration = {4}", _moduleId, DateTime.Now.ToString("HH:mm:ss.ff"), i, targetArmSpeed, _armAcceleration[i]);
         var symbolAcceleration = (_curPropertyValues[Property.SymbolSpin][i] - 1) * Rnd.Range(48f, 56f); // degrees per second per second
         var symbolAngularSpeed = 0f;
 
