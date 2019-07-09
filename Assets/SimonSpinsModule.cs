@@ -519,6 +519,7 @@ public class SimonSpinsModule : MonoBehaviour
             }
 
             // CONTINUOUS MOVEMENT
+            symbolAngularSpeed = accelDecelDuration * accelDecelDuration * symbolAcceleration / 2;
             DebugLeds[i].material.color = Color.white;
             while (!_windDown)
             {
@@ -543,7 +544,6 @@ public class SimonSpinsModule : MonoBehaviour
         {
             // ACCELERATION
             DebugLeds[i].material.color = Color.green;
-            var elapsed = 0f;
             while (Mathf.Abs(_armSpeeds[i]) < Mathf.Abs(targetArmSpeed) && !_windDown)
             {
                 _armSpeeds[i] += Time.deltaTime * _armAcceleration[i];
@@ -555,10 +555,11 @@ public class SimonSpinsModule : MonoBehaviour
                 Symbols[i].transform.localEulerAngles = new Vector3(90, _symbolAngles[i], 0);
 
                 yield return null;
-                elapsed += Time.deltaTime;
             }
 
             // CONTINUOUS MOVEMENT
+            _armSpeeds[i] = targetArmSpeed * Mathf.Sign(_armAcceleration[i]);
+            symbolAngularSpeed = targetArmSpeed / Mathf.Abs(_armAcceleration[i]) * symbolAcceleration;
             DebugLeds[i].material.color = Color.white;
             while (!_windDown || _armDecelDelay[i] > 0)
             {
