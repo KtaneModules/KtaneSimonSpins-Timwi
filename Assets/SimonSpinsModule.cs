@@ -383,7 +383,7 @@ public class SimonSpinsModule : MonoBehaviour
             StartCoroutine(run(i));
     }
 
-    private float easeCubic(float t) { return 3 * t * t - 2 * t * t * t; }
+    private float easeCubic(float t) { return Mathf.Max(0, Mathf.Min(1, 3 * t * t - 2 * t * t * t)); }
     private float interp(float t, float from, float to) { return t * (to - from) + from; }
     private Color interp(float t, Color from, Color to) { return new Color(interp(t, from.r, to.r), interp(t, from.g, to.g), interp(t, from.b, to.b), interp(t, from.a, to.a)); }
 
