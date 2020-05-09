@@ -115,6 +115,7 @@ public class SimonSpinsModule : MonoBehaviour
     private int _subprogress;
     private int _numberOfStages;
     private int _firstRuleIndex;
+    private bool[] _readyForInput = new bool[3]; // Only used by the TP autosolver
 
     void Start()
     {
@@ -487,9 +488,7 @@ public class SimonSpinsModule : MonoBehaviour
 
         // Move each paddle to the correct level (vertical position)
         // Execute this here so that the continuous paddle-rotation animation doesn’t start until the paddles are at the correct height
-        var e = runAnimation(Paddles[i].localPosition.y, .02f + .01f * _curPropertyValues[Property.Level][i], (t, s, f) => interp(easeCubic(t), s, f), y => { Paddles[i].localPosition = new Vector3(0, y, 0); }, suppressDelay: true);
-        while (e.MoveNext())
-            yield return e.Current;
+        yield return runAnimation(Paddles[i].localPosition.y, .02f + .01f * _curPropertyValues[Property.Level][i], (t, s, f) => interp(easeCubic(t), s, f), y => { Paddles[i].localPosition = new Vector3(0, y, 0); }, suppressDelay: true);
 
         // Flip the paddle (also sets the back symbols)
         StartCoroutineWithCleanup(24 + i, false, flipPaddle(i, _curPropertyValues[Property.PaddleFlip][i]));
@@ -519,6 +518,7 @@ public class SimonSpinsModule : MonoBehaviour
             }
 
             // CONTINUOUS MOVEMENT
+            _readyForInput[i] = true;
             symbolAngularSpeed = accelDecelDuration * accelDecelDuration * symbolAcceleration / 2;
             DebugLeds[i].material.color = Color.white;
             while (!_windDown)
@@ -527,6 +527,7 @@ public class SimonSpinsModule : MonoBehaviour
                 Symbols[i].transform.localEulerAngles = new Vector3(90, _symbolAngles[i], 0);
                 yield return null;
             }
+            _readyForInput[i] = false;
 
             // DECELERATION
             DebugLeds[i].material.color = Color.red;
@@ -558,6 +559,7 @@ public class SimonSpinsModule : MonoBehaviour
             }
 
             // CONTINUOUS MOVEMENT
+            _readyForInput[i] = true;
             _armSpeeds[i] = targetArmSpeed * Mathf.Sign(_armAcceleration[i]);
             symbolAngularSpeed = targetArmSpeed / Mathf.Abs(_armAcceleration[i]) * symbolAcceleration;
             DebugLeds[i].material.color = Color.white;
@@ -573,6 +575,7 @@ public class SimonSpinsModule : MonoBehaviour
 
                 yield return null;
             }
+            _readyForInput[i] = false;
 
             // DECELERATION
             DebugLeds[i].material.color = Color.red;
@@ -768,7 +771,7 @@ public class SimonSpinsModule : MonoBehaviour
     private IEnumerator ProcessTwitchCommand(string command)
     {
         Match m;
-        if ((m = Regex.Match(command, @"^\s*[crpsq,;\s]+\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)).Success)
+        if (Regex.IsMatch(command, @"^\s*[crpsq,;\s]+\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
         {
             var paddles = new List<KMSelectable>();
             for (int i = 0; i < command.Length; i++)
@@ -805,37 +808,26 @@ public class SimonSpinsModule : MonoBehaviour
                 yield return new WaitForSeconds(.1f);
             }
         }
-        else if (Regex.IsMatch(command, @"^\s*tilt\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+    }
+
+    IEnumerator TwitchHandleForcedSolve()
+    {
+        while (_rememberedValues != null)
         {
-            yield return null;
-            var frontFace = transform.parent.parent.localEulerAngles.z < 45 || transform.parent.parent.localEulerAngles.z > 315;
+            while (_windDown)
+                yield return true;
 
-            var angle = -60f;
-            var targetAngle = frontFace ? -angle : angle;
-
-            var duration = 1.2f;
-            var elapsed = 0f;
-            while (elapsed < duration)
-            {
-                var lerp = Quaternion.Euler(interp(easeCubic(elapsed / duration), 0, targetAngle), 0, 0);
-                yield return new Quaternion[] { lerp, lerp };
-                yield return null;
-                elapsed += Time.deltaTime;
-            }
-            yield return new Quaternion[] { Quaternion.Euler(targetAngle, 0, 0), Quaternion.Euler(targetAngle, 0, 0) };
-
-            yield return new WaitForSeconds(2.5f);
-
-            elapsed = 0f;
-            while (elapsed < duration)
-            {
-                var lerp = Quaternion.Euler(interp(easeCubic(elapsed / duration), targetAngle, 0), 0, 0);
-                yield return new Quaternion[] { lerp, lerp };
-                yield return null;
-                elapsed += Time.deltaTime;
-            }
-            yield return new Quaternion[] { Quaternion.identity, Quaternion.identity };
-            yield return null;
+            var lastProperty = _tableProperties[(_firstRuleIndex + 1 + _subprogress) % 20];
+            var i = Array.IndexOf(_curPropertyValues[lastProperty], _rememberedValues[_subprogress]);
+            while (!_readyForInput[i])
+                yield return true;
+            Heads[i].OnInteract();
+            yield return new WaitForSeconds(.1f);
+            Heads[i].OnInteractEnded();
+            yield return new WaitForSeconds(.1f);
         }
+
+        while (_windDown)
+            yield return true;
     }
 }
