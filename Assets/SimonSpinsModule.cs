@@ -765,7 +765,7 @@ public class SimonSpinsModule : MonoBehaviour
     }
 
 #pragma warning disable 414
-    private readonly string TwitchHelpMessage = @"!{0} c, s, p [press the circular, square, pentagonal paddle in order] | !{0} flip c, s, p [flip paddles to the other side (long-press)] | !{0} tilt";
+    private readonly string TwitchHelpMessage = @"!{0} c, s, p [press the circular, square, pentagonal paddle in order] | !{0} flip c, s, p [flip paddles to the other side (long-press)]";
 #pragma warning restore 414
 
     private IEnumerator ProcessTwitchCommand(string command)
